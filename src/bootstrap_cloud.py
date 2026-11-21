@@ -286,7 +286,8 @@ def build(limit=None, workers=16):
     qdate_dt = dt.datetime.strptime(qdate, "%Y%m%d").date()
     lag = (today_dt - qdate_dt).days
     skip_flag = os.environ.get("STOCKPOOL_SKIP_FLAG")
-    if today_dt.weekday() >= 5 or lag > 4:
+    force = os.environ.get("FORCE_BUILD") == "1"  # 手动强制：绕过周末休市，用于补建页面
+    if (today_dt.weekday() >= 5 or lag > 4) and not force:
         reason = "周末休市" if today_dt.weekday() >= 5 else f"节假日休市(行情最新{qdate}落后{lag}天)"
         print(f"[跳过] {reason}，不生成页面")
         if skip_flag:
