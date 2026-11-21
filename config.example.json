@@ -1,0 +1,102 @@
+{
+  "_说明": "复制为 config.json 后按需修改。留空则用代码内默认值。",
+
+  "pool": {
+    "_说明": "入池筛选条件",
+    "price_min": 2.0,
+    "price_max": 8.0,
+    "boards": ["主板", "创业板"],
+    "exclude_st": true,
+    "exclude_bj": true,
+    "heat_lookback_days": 20,
+    "heat_rank_max": 3000
+  },
+
+  "launch": {
+    "_说明": "①建仓信号判定阈值",
+    "limit_up_pct": 9.8,
+    "zhaban_tolerance": 0.03,
+    "volume_up_pct": 5.0,
+    "volume_ratio": 2.0,
+    "require_yang": true,
+    "exclude_before_days": 3,
+    "exclude_after_days": 3,
+    "exclude_consecutive_max": 1
+  },
+
+  "hold": {
+    "_说明": "②整理不破位判定",
+    "break_ratio": 0.97
+  },
+
+  "tech_score": {
+    "_说明": "技术面评分权重（合计100）",
+    "not_broken": 20,
+    "ma_bull": 15,
+    "ma_bull_weak": 8,
+    "ma_converge": { "<3": 10, "<5": 7, "<8": 5, "<15": 3 },
+    "ma60_up": 10,
+    "ma60_flat": 5,
+    "volume_shrink": { "<0.5": 15, "<0.8": 12, "<1.0": 8, "<1.5": 5, "else": 2 },
+    "near_support": { "<=5": 10, "<=10": 7, "<=15": 5, ">15": 2 },
+    "chip_profit": 10,
+    "chip_profit_weak": 5,
+    "near_high": { "<=3": 10, "<=5": 7, "<=10": 4, ">10": 2 }
+  },
+
+  "heat_score": {
+    "_说明": "热度趋势评分（可负）",
+    "current": { "<=200": 20, "<=500": 12, "<=1000": 5, "<=2000": -5, "<=4000": -10, "else": -15 },
+    "persist": { "<1200": 15, "<2000": 8, "<4000": -5, "else": -10 },
+    "surge": { "peak>=2000_low<=800": 10, "peak>=1000_low<=500": 5 },
+    "resonance": {
+      "_说明": "热度与股价共振，-10~+10",
+      "both_up": 10,
+      "both_up_min_rank": 30,
+      "both_up_min_pct": 2.0,
+      "both_down": -10,
+      "both_down_min_rank": -100,
+      "both_down_max_pct": -8.0
+    },
+    "decay": {
+      "_说明": "曾热过现在掉了，扣分",
+      "was_top100_now_over500": -10,
+      "was_top300_now_over1000": -8,
+      "was_top600_now_over2000": -6
+    }
+  },
+
+  "concept_bonus": {
+    "_说明": "概念热度加成（用同花顺官方概念榜）",
+    "limit_up_weight": 2,
+    "limit_up_max": 10,
+    "rank_bonus_max": 5,
+    "days_bonus_max": 5,
+    "warming_bonus": 3,
+    "cooling_penalty": -2,
+    "total_max": 20
+  },
+
+  "penalty": {
+    "_说明": "惩罚项",
+    "broken_position": -20,
+    "heat_collapse": -10
+  },
+
+  "display": {
+    "_说明": "页面展示",
+    "kline_days": 30,
+    "heat_series_days": 20,
+    "concepts_per_stock": 5,
+    "realtime_price": true
+  },
+
+  "update": {
+    "_说明": "更新频率（秒）",
+    "refresh_interval": 7200,
+    "heat_concurrency": 3,
+    "heat_delay_per_stock": 0.12,
+    "heat_batch_pause": 1.5,
+    "heat_batch_size": 30
+  }
+}

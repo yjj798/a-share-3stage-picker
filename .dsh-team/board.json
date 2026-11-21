@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "dir": "E:\\stockpool_oss\\stockpool",
+  "project": "stockpool",
+  "createdAt": "2026-11-21T10:07:15.143Z",
+  "updatedAt": "2026-11-21T10:07:31.007Z",
+  "workers": {
+    "workbuddy": {
+      "id": "workbuddy",
+      "spec": 2,
+      "name": "WorkBuddy",
+      "role": "实施者：在项目目录里写代码、跑命令、改文件",
+      "caps": [
+        "implement",
+        "verify",
+        "screenshot"
+      ],
+      "exe": "C:\\Users\\Y\\AppData\\Local\\Programs\\WorkBuddy\\WorkBuddy.exe",
+      "port": 9332,
+      "match": "renderer/index",
+      "composer": "[data-slate-editor=\"true\"]",
+      "send": ".cr-send-button",
+      "answer": ".cr-agent__content .cr-markdown",
+      "streaming": ".cr-stop-button",
+      "busyText": "生成中|正在写入|正在处理|处理中|思考中|准备中|已处理",
+      "status": ".cr-agent__content",
+      "doneText": "已完成",
+      "ready": "!document.body.innerText.includes('选择工作空间')",
+      "readyHint": "输入框下方要选中工作空间（例如 test1），并确认权限是「允许完全访问」",
+      "workspaceName": true
+    },
+    "doubao": {
+      "id": "doubao",
+      "spec": 2,
+      "name": "豆包",
+      "role": "评审 / 创意：挑问题、提创新点、看设计合理性",
+      "caps": [
+        "review",
+        "screenshot"
+      ],
+      "exe": "C:\\Users\\Y\\AppData\\Local\\Doubao\\Application\\app\\Doubao.exe",
+      "port": 9331,
+      "match": "doubao-chat/chat",
+      "composer": "[contenteditable=\"true\"]",
+      "send": "[data-testid=\"chat_input_send_button\"]",
+      "answer": "[data-testid=\"message_text_content\"]",
+      "streaming": "[data-testid*=\"stop\"]",
+      "busyText": "正在思考|正在生成|生成中|停止生成",
+      "answerDoneText": "@@END@@",
+      "ready": "document.body.innerText.includes('本地电脑')",
+      "readyHint": "要切到「工作」模式，并在输入框下方选中「本地电脑」+ 项目目录，否则读不到本地文件/截图",
+      "workspaceName": true
+    },
+    "zcode": {
+      "id": "zcode",
+      "spec": 2,
+      "name": "ZCode",
+      "role": "第三人：实现或评审，GLM 系模型",
+      "caps": [
+        "implement",
+        "review"
+      ],
+      "exe": "",
+      "port": 9334,
+      "match": "renderer/index",
+      "composer": "[data-testid=\"v4-composer-input\"]",
+      "send": "[data-testid=\"v4-composer-send\"]",
+      "answer": "div[class*=\"assistant-row\"] div[class*=\"space-y-4\"]",
+      "busyText": "停止生成|生成中|思考中|工作中|处理中",
+      "answerDoneText": "@@END@@",
+      "ready": "!document.body.innerText.includes('变更前确认')",
+      "readyHint": "权限要改成自动执行（现在显示「变更前确认」，每步都会停下来等你点）",
+      "workspaceName": true
+    },
+    "qoder": {
+      "id": "qoder",
+      "spec": 3,
+      "name": "Qoder",
+      "role": "第四人：实现 / 评审（VS Code 系 IDE，MiniMax 等模型）",
+      "caps": [
+        "implement",
+        "review",
+        "audit"
+      ],
+      "exe": "C:\\Users\\Y\\AppData\\Local\\Programs\\Qoder\\Qoder.exe",
+      "port": 9335,
+      "match": "qoder-app://",
+      "composer": ".loop-rich-editor",
+      "send": "button[data-e2e=\"chat.send\"]",
+      "answer": ".markdown-presentation",
+      "busyText": "停止|生成中|思考中|处理中|运行中",
+      "answerDoneText": "@@END@@",
+      "ready": "!document.body.innerText.includes('工作区就是 Agent 动手的地方')",
+      "readyHint": "要在「工作区」里选中项目目录，并确认审批模式是「自动审批」"
+    }
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "优化A股选股系统源码质量（拆分901行主文件+错误处理+测试）",
+      "worker": "doubao",
+      "status": "ready",
+      "dependsOn": [],
+      "write": [
+        "src",
+        "tests",
+        "config.example.json"
+      ],
+      "read": [],
+      "note": "你是资深 Python 工程师，给一个要开源到 GitHub 的 A股选股系统做代码质量优化。\n\n## 项目位置\nE:\\stockpool_oss\\stockpool\n\n## 先读这两份\n1. OPTIMIZE_TASK.md —— 优化任务书（必读，写明P0/P1/P2优先级）\n2. README.md —— 项目说明\n\n## 核心代码\n- src/simple_pool.py (901行) —— 最重要，包含：三阶段形态识别 find_launch()、技术面评分 tech_score_calc()、热度评分 heat_score_calc()、概念加成 concept_bonus_calc()、HTML模板、main流程\n- src/paths.py —— 跨平台路径\n- src/heat_quick_update.py / heat_backfill.py / concept_backfill.py —— 三个抓数脚本\n- src/refresh_all.py —— 编排\n- src/serve_cloud.py —— 静态服务\n\n## 主要优化项（按 OPTIMIZE_TASK.md）\n\n### P0 必须做\n1. **拆分 simple_pool.py**（901行太长）：\n   - scoring.py —— 形态识别+三维评分（纯函数，无IO）\n   - template.py —— HTML模板\n   - simple_pool.py —— 只做编排\n   目标每个文件 <300 行\n\n2. **错误处理**：网络请求加 timeout/重试/降级；数据库异常保护；把 except: pass 改成记录日志\n\n3. **日志规范**：print 改 logging，支持 --verbose/--quiet\n\n### P1 重要\n4. 配置外置：阈值（破位0.97/放量2倍/涨停9.8%）抽到 config.json\n5. 单元测试：给评分核心写测试（构造合成K线验证三阶段识别），覆盖边界\n6. CLI 友好\n\n### P2 加分\n7. 类型注解 8. docstring 9. 数据校验\n\n## 硬约束\n- 只用 Python 标准库，不许引入第三方\n- Python 3.9+\n- **不许改评分算法逻辑**（阈值、判断条件都是调好的），只改代码组织\n- 不许改数据库 schema\n- 不许硬编码任何 Windows 路径（E:\\ C:\\ 都不能出现）\n\n## 验收\ncd src && python -c \"import simple_pool\"    # 能导入\ncd src && python simple_pool.py             # 能跑（需要engine/data/quant_v2.db，若不存在跳过实测，只保证语法正确）\ngrep -rn \"E:\\\\\\\\|C:\\\\\\\\Users\" src/ engine/  # 必须为空\n\n## 交付\n1. 重构后的代码文件（直接在项目里改）\n2. outbox 里写：改了什么、为什么、验收结果",
+      "image": "",
+      "seeUi": false,
+      "seePath": "index.html",
+      "deliver": "file",
+      "deadlineMin": 45,
+      "expect": [
+        ".dsh-team/outbox/T1.md"
+      ],
+      "referenceDirs": [],
+      "requiredDocs": [],
+      "tags": [],
+      "review": false,
+      "snapshot": true,
+      "crossCheck": false,
+      "verify": "",
+      "risk": "medium",
+      "stalled": false,
+      "stalledNotified": false,
+      "createdAt": "2026-11-21T10:07:20.362Z",
+      "baseline": "",
+      "outbox": "",
+      "error": "",
+      "baseCommit": "ae656748965a9c8fefbf7d8883b318d3a2f6d512"
+    }
+  ],
+  "locks": [],
+  "events": [
+    {
+      "t": "2026-11-21T10:07:20.362Z",
+      "type": "task/add",
+      "message": "T1 优化A股选股系统源码质量（拆分901行主文件+错误处理+测试） → 豆包",
+      "taskId": "T1"
+    },
+    {
+      "t": "2026-11-21T10:07:31.007Z",
+      "type": "worker/preflight",
+      "message": "workbuddy:not-ready doubao:not-ready zcode:not-ready qoder:not-ready"
+    }
+  ],
+  "requiredDocs": [
+    "OPTIMIZE_TASK.md",
+    "README.md"
+  ]
+}
