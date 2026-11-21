@@ -46,7 +46,7 @@ def run():
         print(f'[refresh] 跑{name}...', flush=True)
         try:
             r = subprocess.run([py, script], cwd=HERE, capture_output=True, text=True,
-                               encoding='utf-8', errors='replace', timeout=180,
+                               encoding='utf-8', errors='replace', timeout=600,
                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8', 'PYTHONUTF8': '1'})
             tail = (r.stdout or '').strip().splitlines()[-2:]
             print(f'  rc={r.returncode} ' + ' | '.join(tail), flush=True)
