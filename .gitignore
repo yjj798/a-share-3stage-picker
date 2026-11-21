@@ -29,3 +29,4 @@ desktop.ini
 cookie*
 .env
 config.local.*
+.dsh-team/
