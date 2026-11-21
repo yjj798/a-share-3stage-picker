@@ -10,6 +10,7 @@ out/*.gz
 out/_*
 logs/
 *.log
+.cloud/
 
 # Python
 __pycache__/
