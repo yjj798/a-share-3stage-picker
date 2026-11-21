@@ -1,13 +1,14 @@
 name: 股票池自动更新
 
-# 云端独立运行：从公开接口自建行情库 → 重算评分 → 生成页面 → 提交回仓库，
-# 触发 GitHub Pages 自动更新。全程不依赖本地机器推送任何数据。
+# 云端独立运行：下载真实数据种子（与本地同源）→ 评分 → 生成页面 → 提交回仓库，
+# 触发 GitHub Pages 自动更新。全程不依赖本地机器推送任何文件。
+# 种子来自本仓库 Release seed-v1（真实历史库快照，含行情/热度/概念/涨停原因，
+# 实测与本地真库产出字节级一致）。
 
 on:
   # A股收盘后（北京时间 16:30 = UTC 08:30），周一到周五
   schedule:
     - cron: '30 8 * * 1-5'
-  # 允许在 Actions 页手动触发验证
   workflow_dispatch:
 
 permissions:
@@ -17,10 +18,13 @@ concurrency:
   group: stockpool-auto-update
   cancel-in-progress: false
 
+env:
+  SEED_TAG: seed-v1
+
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -32,31 +36,41 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 云端自建最小行情库
-        # 库落到 runner 临时目录，不进版本库；纯标准库，无需 pip install
+      - name: 下载真实数据种子
         env:
-          STOCKPOOL_DB: ${{ runner.temp }}/quant_cloud.db
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd src
-          python bootstrap_cloud.py --workers 20
+          set -euo pipefail
+          echo "下载 seed.db.gz ..."
+          gh release download "${{ env.SEED_TAG }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'seed.db.gz' --dir "${{ runner.temp }}"
+          echo "下载 f10_concepts.json ..."
+          gh release download "${{ env.SEED_TAG }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'f10_concepts.json' --dir cache
+          gzip -dc "${{ runner.temp }}/seed.db.gz" > "${{ runner.temp }}/quant_cloud.db"
+          echo "种子就绪: $(du -h "${{ runner.temp }}/quant_cloud.db" | cut -f1)"
 
       - name: 生成股票池页面
         env:
           STOCKPOOL_DB: ${{ runner.temp }}/quant_cloud.db
         run: |
+          set -euo pipefail
           cd src
           python simple_pool.py
 
       - name: 复制为 index.html 供 Pages 使用
         run: |
+          set -euo pipefail
           cp out/简版股票池.html index.html
-          test -s index.html && echo "index.html 已生成 $(wc -c < index.html) 字节"
+          test -s index.html && echo "index.html $(wc -c < index.html) 字节"
 
       - name: 提交并推送
         run: |
+          set -euo pipefail
           git config user.name "stockpool-bot"
           git config user.email "bot@users.noreply.github.com"
-          # index.html 被 .gitignore 排除，需 -f 强制纳入；Pages 只认它
           git add -f index.html
           if git diff --cached --quiet; then
             echo "页面无变化，跳过提交"
