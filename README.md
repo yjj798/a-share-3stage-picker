@@ -24,19 +24,23 @@
 | 技术面 | -20 ~ 100 | 不破位20 + 均线多头15 + 均线粘合10 + MA60方向10 + 缩量15 + 距支撑10 + 筹码获利10 + 距前高10 |
 | 热度趋势 | -35 ~ 50 | 当前排名20 + 持续关注15 + 暴增10 + 热度股价共振±10 + 冷门/衰减扣分 |
 | 概念热度 | 0 ~ 20 | 同花顺官方概念榜排名 + 涨停家数 + 持续天数 |
-| 破位惩罚 | -20 | 有建仓信号但跌破建仓低位 = 主力拉高出货，比没信号更差 |
+| 破位惩罚（已移除） | — | 评分只保留技术面 + 热度 + 概念三维 |
 
-**总分无下限**——烂票可以到负分，和没数据的 0 分明确区分。
+**总分无下限**——烂票可以到负分，和没数据的 0 分明确区分。评分只有三维，无其他因子。
 
 ## 数据源
 
+**唯一行情来源：同花顺（10jqka.com.cn 及其子域）。**
+
 | 数据 | 来源 | 说明 |
 |---|---|---|
-| 行情 | 腾讯/新浪日线 | 无需鉴权 |
-| 个股热度 | 同花顺 `interval_data` | 需 cookie；失效自动降级到公开热榜 |
-| 概念（走势最相关） | 同花顺 F10 `stock_concept_list` | 无鉴权，带官方"走势最相关"标记 |
-| 概念热度榜 | `data.10jqka.com.cn/dataapi/limit_up/block_top` | 无鉴权 |
-| 涨停原因 | 同花顺涨停池 | 作为概念补充 |
+| 股票代码 + 名称 + 日线 | 同花顺 `d.10jqka.com.cn/v6/line/hs_{code}/01/last.js` | 按代码段枚举，一次请求同时拿名称与 60 根日线 |
+| 个股热度 | 同花顺公开热榜 `dq.10jqka.com.cn/fuyao/hot_list_data/...` | 真实排名，小时榜 + 日榜合并，无需 cookie |
+| 个股概念 | 同花顺 F10 `stock_concept_list` | 无鉴权，带官方"走势最相关"标记 |
+| 概念热度榜 | 同花顺 `data.10jqka.com.cn/dataapi/limit_up/block_top` | 无鉴权 |
+| 涨停原因 | 同花顺涨停池 / 连板池 | 作为概念补充 |
+
+口径：K 线最多 60 根，热度 20 个交易日，不做更长历史堆积。
 
 ## 目录结构
 
@@ -48,7 +52,7 @@ stockpool/
 │   ├── template.py            HTML 页面模板（单文件自包含）
 │   ├── datasource.py          数据源读取（概念/实时价/日期）
 │   ├── simple_pool.py         ★ 主入口：入池→评分→渲染（只做编排）
-│   ├── heat_quick_update.py   热度当日更新（安全限速）
+│   ├── bootstrap_cloud.py     ★ 云端从零建库（同花顺唯一数据源）
 │   ├── heat_backfill.py       热度90天历史补全
 │   ├── concept_backfill.py    F10概念补全（走势最相关）
 │   ├── ths_concept_snap.py    概念热度榜快照
@@ -57,7 +61,7 @@ stockpool/
 │   └── serve_cloud.py         静态页面服务（带自动刷新）
 ├── engine/ingest/             行情抓取链
 │   ├── quote_chain.py         编排：抓取→清洗→换手→涨停表
-│   ├── fetch_quote.py         腾讯/新浪日线
+│   ├── fetch_quote.py         同花顺日线（last.js）
 │   ├── clean_quote.py         复权/涨停价/清洗
 │   ├── turnover_fix.py        换手率反推
 │   └── limit_up_day_sync.py   涨停表重算
@@ -75,25 +79,23 @@ stockpool/
 python >= 3.9      # 只用标准库，无需 pip install
 ```
 
-### 2. 首次建库
+### 2. 云端自动建库（推荐）
 
-需要一个已有的 `quant_v2.db`（含 `quote_clean` 表），或用行情链从头抓：
+GitHub Actions 每个交易日 16:30（北京时间）自动执行：
+清空旧库 → 同花顺抓取建库 → 评分 → 提交 `index.html` → Pages 更新。
+无需本地机器、无需种子库、无需跨 run 缓存。周末与节假日自动跳过。
 
-```bash
-cd engine
-python ingest/quote_chain.py     # 抓全市场日线 → 建库（首次约30-60分钟）
-```
-
-### 3. 刷新数据并生成页面
+本地等价命令：
 
 ```bash
 cd src
-python refresh_all.py --force
+python bootstrap_cloud.py --workers 16     # 同花顺抓取建库
+python simple_pool.py                      # 评分并生成页面
 ```
 
-输出：`out/股票池.html`
+输出：`out/简版股票池.html`（云端复制为 `index.html`）。
 
-### 4. 本地预览
+### 3. 本地预览
 
 ```bash
 cd src
@@ -109,28 +111,19 @@ python tests/test_scoring.py    # 16 个用例，覆盖三阶段识别/评分/�
 
 ## 定时任务
 
-```cron
-# 每2小时：热度 + 概念 + 评分 + 页面
-0 */2 * * * cd /path/to/stockpool/src && python3 refresh_all.py >> ../logs/refresh.log 2>&1
-
-# 交易日16:40：行情更新 → 全量重算
-40 16 * * 1-5 cd /path/to/stockpool/engine && python3 ingest/quote_chain.py >> ../logs/quote.log 2>&1
-```
+线上由 `.github/workflows/auto_update.yml` 承担：`cron: '30 8 * * 1-5'`（UTC）= 交易日 16:30 北京时间。
+手动触发可在 Actions 页勾选 `force`，绕过周末休市判定补建页面。
 
 ## 接口限速说明
 
-同花顺热度接口需逐个股票请求，默认 **3 并发 + 每只 0.12~0.15s 错峰 + 每30只歇1.5s + 失败退避**。
-1586 只全池约 2 分钟，2 小时一轮，不会触发风控。
-
-热度接口需要 cookie（有效期约 3 个月）。cookie 失效时自动降级到公开热榜接口（覆盖 top100），
-不会中断服务。
+同花顺 K 线接口按代码段枚举，无效代码秒回 404，全市场约 1.3 万个候选代码、
+并发 24 线程，约 2 分钟完成代码表与 60 根日线抓取；热度仅取公开热榜，无需 cookie。
 
 ## 配置
 
 | 环境变量 | 作用 | 默认 |
 |---|---|---|
 | `STOCKPOOL_DB` | 数据库路径 | `engine/data/quant_v2.db` |
-| `THS_COOKIE_JAR` | 同花顺 cookie 文件 | `~/ths/ths-cookie.jar` |
 | `SP_REFRESH_SEC` | 自动刷新间隔（秒） | `7200` |
 | `STOCKPOOL_TOKEN` | 页面访问口令（可选） | 空=不鉴权 |
 
