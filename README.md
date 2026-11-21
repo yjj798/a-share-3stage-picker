@@ -97,6 +97,12 @@ python serve_cloud.py --host 0.0.0.0 --port 8890
 # 打开 http://127.0.0.1:8890
 ```
 
+## 测试
+
+```bash
+python tests/test_scoring.py    # 16 个用例，覆盖三阶段识别/评分/泛概念过滤
+```
+
 ## 定时任务
 
 ```cron
