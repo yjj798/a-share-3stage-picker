@@ -22,7 +22,11 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "out")
+try:
+    import paths
+    OUT = os.environ.get("SP_OUT") or paths.OUT
+except Exception:
+    OUT = os.environ.get("SP_OUT") or os.path.join(os.path.dirname(HERE), "out")
 ROOT_PAGE = "简版股票池.html"   # 2026-11-21 human 令：精简系统为首页，旧股票池.html 不再默认
 COOKIE_NAME = "sp_token"
 COOKIE_DAYS = 7
