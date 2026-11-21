@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""serve_cloud.py · 腾讯云静态站服务（替换原 zt-quant 888 端口）
+"""serve_cloud.py · 本地静态站服务（替换原 zt-quant 888 端口）
 
 - 纯标准库，Python 3.9+（云端 3.14 实测）
 - 服务 out/ 目录下的自包含 HTML/CSV
