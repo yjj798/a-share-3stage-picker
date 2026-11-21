@@ -1,0 +1,31 @@
+# 数据与产物（不进版本库）
+engine/data/*.db
+engine/data/*.db-journal
+engine/data/*.db-wal
+engine/data/*.db-shm
+cache/*.json
+out/*.html
+out/*.db
+out/*.gz
+out/_*
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 敏感
+*.jar
+cookie*
+.env
+config.local.*
