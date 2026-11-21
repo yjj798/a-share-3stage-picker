@@ -194,26 +194,55 @@ def _ths_list_codes():
     return out
 
 
+def _ths_hot_codes():
+    """同花顺热榜接口（本环境已验证可用）→ [(code,name),...]。
+    热榜是活跃股，天然带真实排名，正好适合入池逻辑。取不到时返回 []。"""
+    b = _get(THS_HOT, UA_THS, timeout=15)
+    if not b:
+        return []
+    try:
+        d = json.loads(b.decode("utf-8", "ignore"))
+        rows = (d.get("data") or {}).get("stock_list") or []
+    except Exception:
+        return []
+    out, seen = [], set()
+    for r in rows:
+        c = str(r.get("code", "")).strip()
+        name = str(r.get("name") or r.get("stock_name") or "").strip()
+        if len(c) == 6 and c.isdigit() and c not in seen:
+            seen.add(c)
+            out.append((c, name))
+    return out
+
+
 def fetch_all_codes(limit=None):
     """全市场代码 → [(code, name), ...]。数据源只用同花顺，禁止东方财富。
-    通道1：行情中心 HTML 列表；通道2：问财 JSON。都是同花顺。"""
+    多通道：问财 JSON / 行情中心列表 / 热榜活跃股，全部同花顺；合并去重。
+    带诊断日志：打印每个通道字节数，便于确认本环境哪个可用。"""
     codes, seen = [], set()
-    for src, rows in (("行情中心列表", _ths_list_codes()),
-                      ("问财", _ths_all_codes())):
+    for src, fn in (("问财", _ths_all_codes),
+                    ("行情中心列表", _ths_list_codes),
+                    ("热榜活跃股", _ths_hot_codes)):
+        try:
+            rows = fn()
+        except Exception as e:
+            print(f"[诊断] 同花顺{src}通道异常: {type(e).__name__}")
+            rows = []
+        added = 0
         for c, name in rows:
             if c in seen:
                 continue
             seen.add(c)
             codes.append((c, name))
-        print(f"[代码表·同花顺{src}] 累计 {len(codes)} 只")
-        if codes:
-            break  # 一个通道拿到就够，不叠加、不多抓
+            added += 1
+        print(f"[代码表·同花顺{src}] 本通道 {len(rows)} 只，新增 {added} 只，累计 {len(codes)} 只",
+              flush=True)
     if not codes:
-        print("[FATAL] 同花顺代码表两个通道均失败（不启用东财兜底，遵守禁止东财）")
+        print("[FATAL] 同花顺所有代码通道均空（不启用东财兜底，遵守禁止东财）")
         return []
     if limit:
         codes = codes[:limit]
-    print(f"[代码表·同花顺] 实取 {len(codes)} 只")
+    print(f"[代码表·同花顺] 最终实取 {len(codes)} 只")
     return codes
 
 
@@ -226,7 +255,13 @@ def fetch_bars(code):
     url = THS_KLINE.format(code=code)
     b = _get(url, UA_THS_D, timeout=15, retries=2)
     if not b:
+        if not hasattr(fetch_bars, "_warned"):
+            print("[诊断] 同花顺K线 d.10jqka 返回空，建库将无行情", flush=True)
+            fetch_bars._warned = True
         return []
+    if not hasattr(fetch_bars, "_ok"):
+        print(f"[诊断] 同花顺K线首只响应 {len(b)} 字节", flush=True)
+        fetch_bars._ok = True
     txt = b.decode("gbk", "ignore")
     m = re.search(r'data\s*:\s*"([^"]+)"', txt)
     if not m:
