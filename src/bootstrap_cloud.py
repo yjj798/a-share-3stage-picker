@@ -59,7 +59,7 @@ UA_QQ = {**UA, "Referer": "https://gu.qq.com/"}
 UA_THS = {**UA, "Referer": "https://data.10jqka.com.cn/"}
 
 EM_LIST = ("https://{host}/api/qt/clist/get?pn={pn}&pz=100&po=1&np=1"
-           "&fltt=2&invt=2&fid=f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+           "&fltt=2&invt=2&fid=f12&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
            "&fields=f12,f14,f2,f3")
 EM_HOSTS = ["82.push2.eastmoney.com", "80.push2.eastmoney.com", "push2.eastmoney.com"]
 QQ_KLINE = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{n},"
