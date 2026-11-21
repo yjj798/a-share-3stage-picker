@@ -66,21 +66,16 @@ def score_one(con, code, date, d0, concept_heat=None, concepts=None, heat_end=No
     else:
         ts, _, _, tdet = tech_score_calc(rows, li)
         launch_date = str(rows[li][0])
-    # 概念热度加成（小众概念爆发 0~15）
+    # 概念热度加成（小众概念爆发 0~20）
     cbonus, ctag = concept_bonus_calc(concepts, concept_heat or {})
-    # 热度坍塌惩罚：建仓时热度曾进前100(now冷门) = 拉高出货，额外-10
-    collapse_penalty = 0
-    if tdet and "破位" in " ".join(tdet) and heat_ranks:
-        best_rank = min(r[1] for r in heat_ranks)
-        if best_rank <= 100 and (hrank or 9999) > 500:
-            collapse_penalty = -10
-            tdet = tdet + ["热度坍塌-10"]
-    total = ts + hs + cbonus + collapse_penalty
+    # 总分 = 技术 + 热榜 + 概念，三维；其余维度一律不要
+    total = ts + hs + cbonus
 
-    # 日K技术数据（最近40天：收盘/MA5/MA10/MA20/MA60/量/建仓标志）
+    # 日K技术数据（最近20天：收盘/MA5/MA10/MA20/MA60/量/建仓标志）
+    # 20天足够看清均线形态与建仓点，页面体积只有30天时的 2/3
     closes_all = [r[4] or 0 for r in rows]
     kline = []
-    for j in range(max(0, len(rows) - 30), len(rows)):
+    for j in range(max(0, len(rows) - 20), len(rows)):
         r = rows[j]
         ma5 = calc_ma(closes_all[:j + 1], 5)
         ma10 = calc_ma(closes_all[:j + 1], 10)
@@ -114,7 +109,7 @@ def score_one(con, code, date, d0, concept_heat=None, concepts=None, heat_end=No
         'hrank': hrank, 'hlow': hlow,
         'launch': launch_date, 'launch_days': launch_days,
         'tdet': ' '.join(tdet), 'hdet': ' '.join(hdet),
-        'heat_series': [[r[0], r[1]] for r in heat_ranks[-20:]],   # [日期, 排名]
+        'heat_series': [[r[0], r[1]] for r in heat_ranks[-20:]],   # [日期, 排名] 只要20日，够看够打分
         'kline': kline,
     }
 
@@ -204,14 +199,20 @@ def main():
     with open(OUT, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"[输出] {OUT}")
-    # 同时覆盖旧文件名 股票池.html —— 云端根路径302指向它，不写就还是旧大页面
+    # 旧入口 股票池.html：改用硬链接（两个文件名指向同一份数据，不多占 2MB 磁盘）
     legacy = os.path.join(os.path.dirname(OUT), '股票池.html')
     try:
-        with open(legacy, 'w', encoding='utf-8') as f:
-            f.write(html)
-        print(f"[输出] {legacy}（覆盖旧入口）")
-    except Exception as e:
-        print(f"[警告] 覆盖股票池.html失败: {e}")
+        if os.path.exists(legacy):
+            os.remove(legacy)
+        os.link(OUT, legacy)
+        print(f"[输出] {legacy}（硬链接到简版，不占额外空间）")
+    except Exception:
+        import shutil
+        try:
+            shutil.copyfile(OUT, legacy)
+            print(f"[输出] {legacy}（硬链接不可用，已复制）")
+        except Exception as e2:
+            print(f"[警告] 写股票池.html失败: {e2}")
 
 
 if __name__ == '__main__':
