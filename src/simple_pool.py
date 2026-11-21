@@ -178,7 +178,7 @@ def main():
             print(f"  {i+1}/{len(codes)}")
     con.close()
 
-    # 用腾讯实时价替换显示的股价/涨跌幅（评分仍用收盘价，不受影响）
+    # 用同花顺最新价刷新页面显示的股价/涨跌幅（评分仍用收盘价，不受影响）
     rt = fetch_realtime([r['code'] for r in results])
     rt_time = ''
     for r in results:
