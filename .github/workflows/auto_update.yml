@@ -8,8 +8,14 @@ on:
   # A股收盘后（北京时间 16:30 = UTC 08:30），周一到周五
   schedule:
     - cron: '30 8 * * 1-5'
-  # 手动触发验证
+  # 手动触发：可勾选 force 强制重建（绕过周末休市判定，用于补建页面）
   workflow_dispatch:
+    inputs:
+      force:
+        description: '强制重建（跳过周末休市判定）'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -38,6 +44,7 @@ jobs:
         env:
           STOCKPOOL_DB: ${{ github.workspace }}/engine/data/quant_cloud.db
           STOCKPOOL_SKIP_FLAG: ${{ github.workspace }}/engine/data/skip.flag
+          FORCE_BUILD: ${{ inputs.force == true && '1' || '' }}
         run: |
           set -euo pipefail
           mkdir -p engine/data cache out
