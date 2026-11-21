@@ -68,7 +68,7 @@ def fetch_today(opener, codes):
                          "index_info": [{"index_id": "ths-hot-data-day-rank"}]}],
             "time_range": {"time_type": "NATURAL_DAILY", "start": start, "end": end},
         }
-        time.sleep(0.15)   # 错峰
+        time.sleep(0.05)  # 错峰（原0.15，1586只串行会撞600s超时，已压到0.05并加并发）
         for attempt in range(2):
             try:
                 req = urllib.request.Request(BASE, data=json.dumps(body).encode('utf-8'),
@@ -89,12 +89,12 @@ def fetch_today(opener, codes):
                 if attempt == 0:
                     time.sleep(1.0)
         return code, None
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         for i, (code, res) in enumerate(ex.map(one, codes)):
             if res:
                 out[code] = res
-            if (i + 1) % 30 == 0:
-                time.sleep(1.5)
+            if (i + 1) % 60 == 0:
+                time.sleep(0.8)
     return out
 
 
@@ -128,11 +128,13 @@ def main():
         print('[热度] 池内无代码，跳过')
         return
     t0 = time.time()
-    res = fetch_today(make_opener(), codes)
-    src_tag = 'ths_hist_api90'
-    # 拿到的太少（cookie失效/限流）→ 走公开热榜降级
+    # 轻量口径（默认）：只打 1 次公开热榜接口，拿人气前100名，秒级完成
+    # 深抓口径（SP_HEAT_DEEP=1）：逐股查历史接口，1586只需10分钟且依赖cookie，平时不用
+    res, src_tag = {}, 'ths_hotlist'
+    if os.environ.get('SP_HEAT_DEEP') == '1':
+        res = fetch_today(make_opener(), codes)
+        src_tag = 'ths_hist_api90'
     if len(res) < len(codes) * 0.3:
-        print(f'[热度] 主源只拿到{len(res)}/{len(codes)}，启用热榜降级源')
         fb = fetch_hotlist_fallback(set(codes))
         if len(fb) > len(res):
             res = fb
