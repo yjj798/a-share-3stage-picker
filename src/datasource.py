@@ -156,36 +156,38 @@ def load_concepts(con, date=None):
 
 
 def fetch_realtime(codes):
-    """腾讯实时行情：{code: {price, pct, time}}。分批GET，GBK解码，不封IP。"""
-    out = {}
-    prefixed = []
-    for c in codes:
-        mk = 'sh' if c.startswith(('6', '9')) else ('bj' if c.startswith('8') else 'sz')
-        prefixed.append(mk + c)
-    # 每批80个
-    for i in range(0, len(prefixed), 80):
-        batch = prefixed[i:i + 80]
-        url = 'https://qt.gtimg.cn/q=' + ','.join(batch)
+    """同花顺实时快照：{code: {price, pct, time}}。逐只取当日 last.js，失败降级为空。
+    评分用收盘价，此处仅刷新页面显示价，拿不到不影响评分。禁止腾讯/东财行情源。"""
+    import concurrent.futures
+    url = "https://d.10jqka.com.cn/v6/line/hs_{code}/01/last.js"
+    headers = {"User-Agent": "Mozilla/5.0",
+               "Referer": "https://stockpage.10jqka.com.cn/"}
+
+    def one(code):
         try:
-            req = urllib.request.Request(url)
-            req.add_header('User-Agent', 'Mozilla/5.0')
-            data = urllib.request.urlopen(req, timeout=10).read().decode('gbk', 'ignore')
-            for line in data.strip().split(';'):
-                if '"' not in line or '=' not in line:
-                    continue
-                vals = line.split('"')[1].split('~')
-                if len(vals) < 33:
-                    continue
-                code = line.split('=')[0].split('_')[-1][2:]  # 去掉sh/sz前缀
-                try:
-                    price = float(vals[3]) if vals[3] else 0
-                    pct = float(vals[32]) if vals[32] else 0
-                except ValueError:
-                    continue
-                if price > 0:
-                    out[code] = {'price': price, 'pct': pct, 'time': vals[30] if len(vals) > 30 else ''}
+            req = urllib.request.Request(url.format(code=code), headers=headers)
+            txt = urllib.request.urlopen(req, timeout=8).read().decode("gbk", "ignore")
+            # var hs_000001={price:10.51, ...};  取 price 与昨收算涨幅
+            pm = re.search(r"\bprice\s*:\s*([\d.]+)", txt)
+            if not pm:
+                return None
+            price = float(pm.group(1))
+            if price <= 0:
+                return None
+            # data 字段最后一个分号行含当日收盘/现价，昨收用 price 数组难以稳定取；
+            # 涨幅留空由页面按显示处理，不强求。
+            tm = re.search(r"\bdate\s*:\s*'?([\d-]+)'?", txt)
+            return code, {"price": price, "pct": 0.0,
+                          "time": (tm.group(1).replace("-", "") if tm else "")}
         except Exception:
-            continue
+            return None
+
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
+        for res in ex.map(one, codes):
+            if res:
+                c, q = res
+                out[c] = q
     return out
 
 
