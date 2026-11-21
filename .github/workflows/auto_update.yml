@@ -77,6 +77,9 @@ jobs:
         run: |
           git config user.name "stockpool-bot"
           git config user.email "bot@users.noreply.github.com"
+          # 自定义域名：每次重建都确保 CNAME 存在，避免误删导致域名绑定丢失
+          [ "$(cat CNAME 2>/dev/null)" = "4.legaga.top" ] || printf '4.legaga.top\n' > CNAME
+          git add -f CNAME
           # index.html 被 .gitignore 排除，需 -f 强制纳入；Pages 只认它
           git add -f index.html
           if git diff --cached --quiet; then
