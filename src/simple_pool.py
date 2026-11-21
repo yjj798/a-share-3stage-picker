@@ -146,6 +146,8 @@ def main():
     # 入池：股价2-8 主板/创业板 非ST 非北交 + 近20天进过热度前3000（真有人气）
     # 诊断：逐条件打印命中数，便于定位云端0只卡在哪一步
     base_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=?", (date,)).fetchone()[0]
+    board_dist = con.execute("SELECT board, COUNT(*) FROM quote_clean WHERE trade_date=? GROUP BY board", (date,)).fetchall()
+    print(f"[板块分布] {board_dist}")
     board_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND board IN ('主板','创业板')", (date,)).fetchone()[0]
     price_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND close>=2.0 AND close<8.0", (date,)).fetchone()[0]
     flag_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND is_st=0 AND is_bj=0", (date,)).fetchone()[0]
