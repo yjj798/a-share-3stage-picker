@@ -1,9 +1,10 @@
 name: 股票池自动更新
 
-# 云端独立运行：下载精简数据种子 → 评分 → 生成页面 → 提交回仓库，
+# 云端独立运行：下载精简数据种子 → 抓当日增量 → 评分 → 生成页面 → 提交回仓库，
 # 触发 GitHub Pages 自动更新。全程不依赖本地机器推送任何文件。
-# 种子来自本仓库 Release seed-v1，按评分实际所需裁剪：K线仅60交易日、热度仅20交易日、
-# 概念/涨停原因按60交易日，其余更早历史一律不带。评分正常产出，计算与数据最小化。
+# 种子来自本仓库 Release seed-v1：K线60交易日、热度20交易日、概念/涨停原因按60交易日。
+# 每次运行用东财一次请求抓全市场当日OHLC追加进种子，滚动保持窗口固定（K线60/热度20），
+# 数据随交易日前进；周末/数据未前进时自动跳过增量。轻量、零第三方依赖。
 
 on:
   # A股收盘后（北京时间 16:30 = UTC 08:30），周一到周五
@@ -51,6 +52,16 @@ jobs:
             --pattern 'f10_concepts.json' --dir cache
           gzip -dc "${{ runner.temp }}/seed.db.gz" > "${{ runner.temp }}/quant_cloud.db"
           echo "种子就绪: $(du -h "${{ runner.temp }}/quant_cloud.db" | cut -f1)"
+
+      - name: 抓取当日增量并滚动窗口
+        # 东财一次请求拿全市场当日OHLC + 公开热度榜，追加到种子库；
+        # K线保持60交易日、热度保持20交易日；周末或数据未前进时自动跳过。
+        env:
+          STOCKPOOL_DB: ${{ runner.temp }}/quant_cloud.db
+        run: |
+          set -euo pipefail
+          cd src
+          python cloud_incremental.py
 
       - name: 生成股票池页面
         env:
