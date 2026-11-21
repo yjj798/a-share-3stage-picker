@@ -58,7 +58,7 @@ def heat_score_calc(heat_ranks, price_closes=None):
     if peak >= 2000 and low <= 800: s += 10; det.append("暴增10")
     elif peak >= 1000 and low <= 500: s += 5; det.append("跃升5")
     # 热度衰减惩罚：从高位大幅回落的票（曾经热过、现在掉了）
-    if len(ranks) >= 10:
+    if len(ranks) >= 5:
         recent_peak = min(ranks[-10:])     # 近10日最好的排名
         # 曾进前100，现在掉出500 → 资金撤离
         if recent_peak <= 100 and latest > 500:
