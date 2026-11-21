@@ -10,12 +10,21 @@
   - 纯标准库；评分只用到的字段写全，其余列留空。
 
 用法（Actions）:
-  python cloud_incremental.py                 # 抓当日并增量
+  python cloud_incremental.py                 # 抓当日并增量；周末/节假日休市自动跳过
 本地验证（不联网）:
   python cloud_incremental.py --simulate      # 复制种子最后一天当"新交易日"，验证滚动逻辑
 
+休市判定（不依赖人工维护节假日表）：
+  1) 周六/周日：直接跳过，不联网；
+  2) 工作日：抓一次东财快照后，用成交额前 20 活跃股比对库内最新交易日，
+     若价格+成交量与库内最新日完全一致，说明数据源仍停在上一交易日
+     （法定节假日/临时休市），判定为无新交易日 → 跳过写库。
+  跳过时写 STOCKPOOL_SKIP_FLAG 标记文件，Actions 据此不重新生成页面、
+  不产生空提交，页面保持上一交易日数据，开市后自然接续，不留空档。
+
 环境变量:
-  STOCKPOOL_DB   种子库路径（默认 engine/data/quant_v2.db）
+  STOCKPOOL_DB          种子库路径（默认 engine/data/quant_v2.db）
+  STOCKPOOL_SKIP_FLAG   休市跳过标记文件（可选，Actions 传入）
 """
 from __future__ import annotations
 
@@ -196,6 +205,78 @@ def latest_dates(con) -> tuple[str | None, str | None]:
     return q, h
 
 
+def snapshot_is_stale(con, qmax: str | None, em_raw: list[dict], sample: int = 30) -> bool:
+    """判断东财快照是否仍是库内最新交易日的数据（即今日休市、无新交易日）。
+
+    东财 clist 不直接返回交易日期，但休市日它展示的就是上一交易日收盘快照。
+    取成交额最大的若干活跃股，把快照收盘价同库内 qmax 那天逐只比对：
+    多数一致 => 快照未前进 => 视为休市。只比价不比量：种子与实时接口成交量
+    口径未必一致，拿量比对反而可能把休市日误判为交易日而写入假数据；
+    活跃股 30 只收盘价全部与昨日相同的概率极低，比价已足够稳。
+    """
+    if not qmax or not em_raw:
+        return False
+    # 按成交额取前 sample 只活跃股：(amount, code, close)
+    cands = []
+    for x in em_raw:
+        code = str(x.get("f12") or "")
+        if len(code) != 6 or not code.isdigit():
+            continue
+        amt = num(x.get("f6")) or 0.0
+        cands.append((amt, code, num(x.get("f2"))))
+    cands.sort(key=lambda t: t[0], reverse=True)
+    cands = cands[:sample]
+    if not cands:
+        return False
+
+    # 库内 qmax 那天：code -> close
+    codes = [c[1] for c in cands]
+    ph = ",".join("?" * len(codes))
+    rows = con.execute(
+        f"SELECT code, close FROM quote_clean "
+        f"WHERE trade_date=? AND code IN ({ph})", [qmax] + codes).fetchall()
+    db = {r[0]: r[1] for r in rows if r[1] is not None}
+    if not db:
+        return False  # 库里没对上（种子结构不同）时不敢误判休市，照常更新
+
+    def close_enough(a, b):
+        if a is None or b is None:
+            return False
+        return abs(a - b) <= max(0.01, abs(b) * 0.001)  # 价差≤0.1% 视为同一收盘
+
+    same = 0
+    compared = 0
+    for _amt, code, close in cands:
+        if code not in db:
+            continue
+        compared += 1
+        if close_enough(close, db[code]):
+            same += 1
+    if compared < 5:
+        return False
+    ratio = same / compared
+    print(f"[休市判定] 活跃股样本 {compared} 只，与库内 {qmax} 一致 {same} 只 ({ratio:.0%})")
+    return ratio >= 0.8
+
+
+def write_skip_flag(reason: str):
+    flag = os.environ.get("STOCKPOOL_SKIP_FLAG")
+    if not flag:
+        return
+    try:
+        with open(flag, "w", encoding="utf-8") as f:
+            f.write(reason)
+    except OSError as e:
+        print(f"[警告] 无法写跳过标记 {flag}: {e}")
+
+
+def skip_and_exit(con, reason: str):
+    print(f"[跳过] {reason}")
+    write_skip_flag(reason)
+    con.close()
+    sys.exit(0)
+
+
 def trade_days(con, table: str, n: int) -> list[str]:
     col = "trade_date"
     return [r[0] for r in con.execute(
@@ -274,21 +355,25 @@ def main():
         con.close()
         sys.exit(0 if ok else 1)
 
-    # 当日交易日（UTC+8，工作日；周末跳过）
+    # ① 周末：直接跳过，不联网（cron 已只排工作日，此处为手动触发兜底）
     now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
     if now.weekday() >= 5:
-        print(f"[跳过] 今日 {now:%Y-%m-%d} 为周末，无新交易日")
-        con.close()
-        sys.exit(0)
+        wd = "六日"[now.weekday() - 5]
+        skip_and_exit(con, f"今日 {now:%Y-%m-%d} 为周{wd}，A股休市，无新交易日")
+
     trade_date = now.strftime("%Y%m%d")
     if qmax and trade_date <= qmax:
-        print(f"[跳过] 当日 {trade_date} <= 种子最新 {qmax}（数据未前进，可能节假日）")
-        con.close()
-        sys.exit(0)
+        skip_and_exit(con, f"当日 {trade_date} <= 库内最新 {qmax}，数据未前进")
 
+    # ② 抓一次东财快照；节假日休市时它返回的仍是上一交易日收盘数据
     print(f"[抓取] 东财全市场当日 {trade_date} ...")
     em = fetch_eastmoney_all()
     print(f"[抓取] 东财返回 {len(em)} 只")
+
+    # ③ 法定节假日/临时休市判定：快照与库内最新日一致 => 无新交易日，跳过写库
+    if snapshot_is_stale(con, qmax, em):
+        skip_and_exit(con, f"{trade_date} 为节假日休市（行情快照仍停在 {qmax}），无新交易日，不改库")
+
     quote_rows = to_quote_rows(em, trade_date)
     print(f"[构造] 有效行情 {len(quote_rows)} 行")
     if len(quote_rows) < 1000:
