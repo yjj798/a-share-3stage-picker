@@ -11,11 +11,14 @@ bootstrap_cloud.py — GitHub Actions 云端从零建库（每次清空旧库重
     · 热度：当日真实热榜 top100 + 最近 20 个交易日快照（20 日热度，用户口径）
     · 其余历史一律不要，控制抓取量、库体积和耗时。
 
-数据源（全部公开、纯标准库、无需 cookie）：
-    · 东方财富  clist 接口      → 全市场股票代码 + 名称 + 现价 + 涨跌幅
-    · 腾讯财经  fqkline 接口    → 每只票 60 根日线
-    · 同花顺    公开热榜         → 热度排名（order 字段）构造 heat_rank_daily
-    · 同花顺    概念榜 block_top → 概念热度写入 ths_concept_rank_daily
+数据源（全部同花顺、纯标准库、无需 cookie；已彻底移除东方财富）：
+    · 同花顺 资金流列表      → 全市场股票代码 + 名称 + 现价（替代东财 clist）
+    · 同花顺 d.10jqka K线    → 每只票 60 根日线（替代腾讯 fqkline）
+    · 同花顺 公开热榜         → 热度排名（order 字段）构造 heat_rank_daily
+    · 同花顺 概念榜 block_top → 概念热度写入 ths_concept_rank_daily
+    · 同花顺 F10             → 个股概念
+
+严禁使用东方财富（eastmoney / push2 / clist）与腾讯行情接口；任何数据只取同花顺。
 
 建表（对齐 simple_pool.py 的实际查询）：
     quote_clean(trade_date, code, name, open, high, low, close, volume,
@@ -37,6 +40,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -55,14 +59,16 @@ BARS = 60          # K线最多 60 根（用户口径）
 HEAT_HIST = 20     # 热度补最近 20 个交易日快照（20 日热度，用户口径）
 
 UA = {"User-Agent": "Mozilla/5.0 (compatible; stockpool-ci/1.0)"}
-UA_QQ = {**UA, "Referer": "https://gu.qq.com/"}
 UA_THS = {**UA, "Referer": "https://data.10jqka.com.cn/"}
 
-EM_LIST = ("https://{host}/api/qt/clist/get?pn={pn}&pz=100&po=1&np=1"
-           "&fltt=2&invt=2&fid=f12&fs=m:0+t:6,m:0+t:80,m:1+t:2"
-           "&fields=f12,f14,f2,f3")
-EM_HOSTS = ["82.push2.eastmoney.com", "80.push2.eastmoney.com", "push2.eastmoney.com"]
-QQ_KLINE = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{n},"
+# 全市场股票列表（同花顺行情中心，沪深主板+创业板；HTML 表格，含代码/名称/现价）
+THS_LIST = ("http://q.10jqka.com.cn/index/index/board/all/field/code/order/asc/"
+            "page/{pn}/ajax/1/")
+# 同花顺日线：返回的 data 字段为 ; 分隔行，每行 日期,开,高,低,收,量,...
+THS_KLINE = "https://d.10jqka.com.cn/v6/line/hs_{code}/01.js"
+UA_THS_Q = {**UA, "Referer": "http://q.10jqka.com.cn/"}
+UA_THS_D = {**UA, "Referer": "https://stockpage.10jqka.com.cn/"}
+QQ_KLINE = THS_KLINE  # 兼容旧引用；实际已走同花顺
 THS_HOT = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock?stock_type=a&type=hour&list_type=normal"
 THS_CONCEPT = ("https://data.10jqka.com.cn/dataapi/limit_up/block_top"
                "?filter=HS,GEM2STAR&page=1&limit=100"
@@ -121,69 +127,123 @@ def _sym(code):
     return ("sh" if code.startswith(("6", "9")) else "sz") + code
 
 
-def fetch_all_codes(limit=None):
-    """分页拉全市场代码 → [(code, name), ...]"""
-    first = None
-    for host in EM_HOSTS:
-        b = _get(EM_LIST.format(host=host, pn=1), UA, timeout=15)
-        if b:
-            try:
-                first = json.loads(b.decode("utf-8", "ignore"))
-                if first.get("data") and first["data"].get("diff"):
-                    EM_HOSTS[0] = host
-                    break
-            except Exception:
-                first = None
-    if not first or not first.get("data"):
-        print("[FATAL] 东方财富代码表拉取失败")
+# 同花顺问财：一次拿全市场代码+名称（JSON，比 HTML 表格稳）
+THS_WENCAI = ("https://www.iwencai.com/unifiedwap/unified-wap/v2/result/get-robot-data")
+THS_Q = ("https://data.10jqka.com.cn/funds/ggzjl/"
+         "field/code/order/asc/page/1/ajax/1/")
+
+
+def _ths_all_codes():
+    """同花顺问财：沪深A股全部代码+名称 → [(code,name),...]；失败返回 []。"""
+    body = {
+        "question": "沪深A股 股票代码 股票简称",
+        "perpage": 6000, "page": 1,
+        "secondary_intent": "stock",
+        "log_info": '{"input_type":"typewrite"}',
+        "source": "Ths_iwencai_Xuangu", "version": "2.0",
+    }
+    req = urllib.request.Request(
+        THS_WENCAI,
+        data=json.dumps(body).encode("utf-8"),
+        headers={**UA_THS, "Content-Type": "application/json",
+                 "Referer": "https://www.iwencai.com/"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception:
         return []
-    total = first["data"].get("total") or 0
-    codes = []
-    seen = set()
-    for pn in range(1, (total // 100) + 3):
-        b = _get(EM_LIST.format(host=EM_HOSTS[0], pn=pn), UA, timeout=15)
-        if not b:
-            continue
+    # 问财返回结构：data.answer[0].roots[...].data 或 data.answer.roots[0].data
+    rows = []
+    try:
+        answer = d["data"]["answer"]
+        roots = answer[0]["roots"] if isinstance(answer, list) else answer["roots"]
+        for root in roots:
+            for rec in (root.get("data") or []):
+                code = str(rec.get("股票代码") or rec.get("code") or "").strip()
+                name = str(rec.get("股票简称") or rec.get("name") or "").strip()
+                if len(code) == 6 and code.isdigit():
+                    rows.append((code, name))
+    except Exception:
+        pass
+    return rows
+
+
+def _ths_list_codes():
+    """同花顺行情中心列表页：HTML 表格 → [(code,name),...]。每页约20只，抓多页。"""
+    out, seen = [], set()
+    for pn in range(1, 51):  # 最多 50 页 ≈ 1000 只，够评分且轻量
+        url = THS_LIST.format(pn=pn)
         try:
-            d = json.loads(b.decode("utf-8", "ignore"))
-            diff = (d.get("data") or {}).get("diff") or []
+            b = _get(url, UA_THS_Q, timeout=15)
         except Exception:
-            continue
-        if not diff:
             break
-        for x in diff:
-            c = str(x.get("f12", "")).strip()
-            if c and c.isdigit() and len(c) == 6 and c not in seen:
+        if not b:
+            break
+        html = b.decode("gbk", "ignore")
+        # 行内：<a ...>600000</a> ... <a ...>名称</a>
+        rows = re.findall(
+            r"<a[^>]*>\s*(\d{6})\s*</a>.*?<a[^>]*>\s*([^<]+?)\s*</a>",
+            html, re.S)
+        if not rows:
+            break
+        for c, name in rows:
+            if c not in seen:
                 seen.add(c)
-                codes.append((c, str(x.get("f14", ""))))
-        if limit and len(codes) >= limit:
-            codes = codes[:limit]
-            break
-        if pn * 100 >= total:
-            break
-    print(f"[代码表] 全市场 {total} 只，实取 {len(codes)} 只")
+                out.append((c, name.strip()))
+    return out
+
+
+def fetch_all_codes(limit=None):
+    """全市场代码 → [(code, name), ...]。数据源只用同花顺，禁止东方财富。
+    通道1：行情中心 HTML 列表；通道2：问财 JSON。都是同花顺。"""
+    codes, seen = [], set()
+    for src, rows in (("行情中心列表", _ths_list_codes()),
+                      ("问财", _ths_all_codes())):
+        for c, name in rows:
+            if c in seen:
+                continue
+            seen.add(c)
+            codes.append((c, name))
+        print(f"[代码表·同花顺{src}] 累计 {len(codes)} 只")
+        if codes:
+            break  # 一个通道拿到就够，不叠加、不多抓
+    if not codes:
+        print("[FATAL] 同花顺代码表两个通道均失败（不启用东财兜底，遵守禁止东财）")
+        return []
+    if limit:
+        codes = codes[:limit]
+    print(f"[代码表·同花顺] 实取 {len(codes)} 只")
     return codes
 
 
 def fetch_bars(code):
-    """→ [[YYYYMMDD, open, close, high, low, volume], ...]"""
-    url = QQ_KLINE.format(sym=_sym(code), n=BARS)
-    b = _get(url, UA_QQ, timeout=15, retries=2)
+    """同花顺日线 → [[YYYYMMDD, open, close, high, low, volume], ...]（最多 BARS 根）
+    同花顺 d.10jqka.com.cn/v6/line/hs_XXXXXX/01.js 返回：
+        var hs_XXXXXX={data:"20240102,开,高,低,收,量,额;...", price:{...}};
+    字段序：date,open,high,low,close,volume,...（转成评分要的 date,open,close,high,low,volume）
+    """
+    url = THS_KLINE.format(code=code)
+    b = _get(url, UA_THS_D, timeout=15, retries=2)
     if not b:
         return []
-    try:
-        node = (json.loads(b.decode("utf-8", "ignore")).get("data") or {}).get(_sym(code)) or {}
-    except Exception:
+    txt = b.decode("gbk", "ignore")
+    m = re.search(r'data\s*:\s*"([^"]+)"', txt)
+    if not m:
         return []
-    bars = node.get("qfqday") or node.get("day") or []
     out = []
-    for x in bars:
-        try:
-            out.append([str(x[0]).replace("-", ""), float(x[1]), float(x[2]),
-                        float(x[3]), float(x[4]), float(x[5])])
-        except Exception:
+    for row in m.group(1).split(";"):
+        p = row.split(",")
+        if len(p) < 6:
             continue
-    return out
+        try:
+            d = p[0].replace("-", "")
+            op, hi, lo, cl, vol = (float(p[1]), float(p[2]), float(p[3]),
+                                   float(p[4]), float(p[5]))
+            out.append([d, op, cl, hi, lo, vol])
+        except (ValueError, IndexError):
+            continue
+    return out[-BARS:]
 
 
 def fetch_hot():
