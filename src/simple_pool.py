@@ -144,6 +144,13 @@ def main():
     d20 = (datetime.datetime.strptime(date, '%Y%m%d') - datetime.timedelta(days=20)).strftime('%Y%m%d')
 
     # 入池：股价2-8 主板/创业板 非ST 非北交 + 近20天进过热度前3000（真有人气）
+    # 诊断：逐条件打印命中数，便于定位云端0只卡在哪一步
+    base_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=?", (date,)).fetchone()[0]
+    board_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND board IN ('主板','创业板')", (date,)).fetchone()[0]
+    price_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND close>=2.0 AND close<8.0", (date,)).fetchone()[0]
+    flag_n = con.execute("SELECT COUNT(*) FROM quote_clean WHERE trade_date=? AND is_st=0 AND is_bj=0", (date,)).fetchone()[0]
+    heat_n = con.execute("SELECT COUNT(DISTINCT code) FROM heat_rank_daily WHERE trade_date>=? AND trade_date<=? AND rank<=3000", (d20, heat_d or date)).fetchone()[0]
+    print(f"[入池诊断] 基准日{date}: 行情{base_n} 板块{board_n} 价格2-8:{price_n} 非ST非BJ:{flag_n} 热度前3000:{heat_n} (d20={d20},heat={heat_d})")
     pool = con.execute("""
         SELECT q.code FROM quote_clean q
         WHERE q.trade_date=? AND q.board IN ('主板','创业板')
