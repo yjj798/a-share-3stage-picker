@@ -156,8 +156,8 @@ def load_concepts(con, date=None):
 
 
 def fetch_realtime(codes):
-    """同花顺实时快照：{code: {price, pct, time}}。逐只取当日 last.js，失败降级为空。
-    评分用收盘价，此处仅刷新页面显示价，拿不到不影响评分。禁止腾讯/东财行情源。"""
+    """同花顺实时快照：{code: {price, pct, time}}。取 last.js 最新一根日线，
+    拿不到则留空由收盘价显示。评分始终用日线收盘价，不受此处影响。"""
     import concurrent.futures
     url = "https://d.10jqka.com.cn/v6/line/hs_{code}/01/last.js"
     headers = {"User-Agent": "Mozilla/5.0",
@@ -166,19 +166,21 @@ def fetch_realtime(codes):
     def one(code):
         try:
             req = urllib.request.Request(url.format(code=code), headers=headers)
-            txt = urllib.request.urlopen(req, timeout=8).read().decode("gbk", "ignore")
-            # var hs_000001={price:10.51, ...};  取 price 与昨收算涨幅
-            pm = re.search(r"\bprice\s*:\s*([\d.]+)", txt)
-            if not pm:
+            txt = urllib.request.urlopen(req, timeout=8).read().decode("utf-8", "ignore")
+            i, j = txt.find("("), txt.rfind(")")
+            if i < 0 or j <= i:
                 return None
-            price = float(pm.group(1))
-            if price <= 0:
+            d = json.loads(txt[i + 1:j])
+            rows = [r for r in (d.get("data") or "").split(";") if r]
+            if len(rows) < 2:
                 return None
-            # data 字段最后一个分号行含当日收盘/现价，昨收用 price 数组难以稳定取；
-            # 涨幅留空由页面按显示处理，不强求。
-            tm = re.search(r"\bdate\s*:\s*'?([\d-]+)'?", txt)
-            return code, {"price": price, "pct": 0.0,
-                          "time": (tm.group(1).replace("-", "") if tm else "")}
+            cur, prev = rows[-1].split(","), rows[-2].split(",")
+            price = float(cur[4])
+            base = float(prev[4])
+            if price <= 0 or base <= 0:
+                return None
+            return code, {"price": price, "pct": round((price - base) / base * 100, 4),
+                          "time": str(d.get("today") or cur[0])}
         except Exception:
             return None
 
