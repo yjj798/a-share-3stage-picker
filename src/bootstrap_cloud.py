@@ -59,7 +59,7 @@ UA_QQ = {**UA, "Referer": "https://gu.qq.com/"}
 UA_THS = {**UA, "Referer": "https://data.10jqka.com.cn/"}
 
 EM_LIST = ("https://{host}/api/qt/clist/get?pn={pn}&pz=100&po=1&np=1"
-           "&fltt=2&invt=2&fid=f12&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+           "&fltt=2&invt=2&fid=f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
            "&fields=f12,f14,f2,f3")
 EM_HOSTS = ["82.push2.eastmoney.com", "80.push2.eastmoney.com", "push2.eastmoney.com"]
 QQ_KLINE = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{n},"
@@ -153,9 +153,14 @@ def fetch_all_codes(limit=None):
             break
         for x in diff:
             c = str(x.get("f12", "")).strip()
-            if c and c.isdigit() and len(c) == 6 and c not in seen:
-                seen.add(c)
-                codes.append((c, str(x.get("f14", ""))))
+            # 入池策略只要主板/创业板：建库阶段就剔除科创板(688)/北交所(4/8/9)，
+            # 避免有限的抓取名额被不在池子里的票占满（云端fixture常只返回前200只）。
+            if not (c and c.isdigit() and len(c) == 6 and c not in seen):
+                continue
+            if c.startswith(("688", "4", "8", "9")):
+                continue
+            seen.add(c)
+            codes.append((c, str(x.get("f14", ""))))
         if limit and len(codes) >= limit:
             codes = codes[:limit]
             break
