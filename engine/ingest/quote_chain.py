@@ -2,7 +2,7 @@
 """quote_chain.py — V2 行情生产链编排（P6 / TODO#48，2026-11-10）。
 
 顺序即契约，不可调换：
-    1. ingest/fetch_quote.py       新浪/腾讯日线 → daily_quote_src（原始暂存）
+    1. ingest/fetch_quote.py       同花顺日线（last.js）→ daily_quote_src（原始暂存）
     2. ingest/clean_quote.py       涨停价/复权/清洗重算 → quote_clean（全量幂等，~90s）
     3. ingest/turnover_fix.py      turnover_est 全历史反推（观察池入池规则依赖，~25s）
     4. ingest/limit_up_day_sync.py 近 30 交易日涨停表重算 → limit_up_day_v2
