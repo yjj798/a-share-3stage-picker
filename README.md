@@ -44,7 +44,10 @@
 stockpool/
 ├── src/
 │   ├── paths.py               路径配置（跨平台）
-│   ├── simple_pool.py         ★ 核心：三阶段识别 + 评分 + 生成页面
+│   ├── scoring.py             ★ 三阶段识别 + 三维评分（纯函数，无IO）
+│   ├── template.py            HTML 页面模板（单文件自包含）
+│   ├── datasource.py          数据源读取（概念/实时价/日期）
+│   ├── simple_pool.py         ★ 主入口：入池→评分→渲染（只做编排）
 │   ├── heat_quick_update.py   热度当日更新（安全限速）
 │   ├── heat_backfill.py       热度90天历史补全
 │   ├── concept_backfill.py    F10概念补全（走势最相关）
@@ -58,6 +61,7 @@ stockpool/
 │   ├── clean_quote.py         复权/涨停价/清洗
 │   ├── turnover_fix.py        换手率反推
 │   └── limit_up_day_sync.py   涨停表重算
+├── tests/                     单元测试（16个用例）
 ├── data/                      数据库（不进版本库）
 ├── cache/                     概念缓存
 └── out/                       生成的页面
