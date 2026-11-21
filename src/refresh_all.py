@@ -39,6 +39,8 @@ def run():
         ('概念榜', os.path.join(HERE, 'ths_concept_snap.py')),      # 官方概念热度快照
         ('评分', os.path.join(HERE, 'simple_pool.py')),            # 技术+热度+概念 → 页面
     ]
+    # 步骤超时：热度更新要抓全池(1500+只)，留足余量；其余 10 分钟足够
+    TIMEOUTS = {'热度更新': 900}
     for name, script in steps:
         if not os.path.isfile(script):
             print(f'[refresh] 跳过{name}: 无脚本')
@@ -46,7 +48,7 @@ def run():
         print(f'[refresh] 跑{name}...', flush=True)
         try:
             r = subprocess.run([py, script], cwd=HERE, capture_output=True, text=True,
-                               encoding='utf-8', errors='replace', timeout=600,
+                               encoding='utf-8', errors='replace', timeout=TIMEOUTS.get(name, 600),
                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8', 'PYTHONUTF8': '1'})
             tail = (r.stdout or '').strip().splitlines()[-2:]
             print(f'  rc={r.returncode} ' + ' | '.join(tail), flush=True)
