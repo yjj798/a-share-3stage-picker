@@ -30,3 +30,4 @@ cookie*
 .env
 config.local.*
 .dsh-team/
+push_via_api.py
