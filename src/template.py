@@ -20,6 +20,16 @@ h1{font-size:19px;margin:0}.sub{color:var(--tx2);font-size:12px}
 .tab{padding:8px 20px;cursor:pointer;color:var(--tx2);font-size:13px;border-bottom:2px solid transparent}
 .tab.on{color:var(--tx);border-bottom-color:var(--accent);font-weight:600}
 .toolbar{display:flex;gap:10px;margin-bottom:12px;align-items:center}
+/* 分页 */
+.pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:14px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.pgbtn{background:#1b2029;border:1px solid var(--line);color:var(--tx2);padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums}
+.pgbtn:hover:not(:disabled){border-color:var(--accent);color:var(--tx)}
+.pgbtn.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.pgbtn:disabled{opacity:.35;cursor:not-allowed}
+.pgdot{color:var(--tx2);font-size:12px;padding:0 2px}
+.pgjump{color:var(--tx2);font-size:12px;margin-left:6px}
+.pginp{background:#1b2029;border:1px solid var(--line);color:var(--tx);width:56px;padding:4px 6px;border-radius:5px;font-size:12px;text-align:center;outline:none}
+.pginp:focus{border-color:var(--accent)}
 input{background:var(--panel);border:1px solid var(--line);color:var(--tx);padding:8px 12px;border-radius:8px;font-size:13px;outline:none;width:280px}
 input:focus{border-color:var(--accent)}
 table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:10px;overflow:hidden}
@@ -100,6 +110,7 @@ a.name.nbtn:hover{color:var(--tx)}
 <th style="width:100px" data-k="launch">放量日/距今</th>
 <th style="width:300px">热度20日 <span style="font-weight:400;font-size:10px;white-space:nowrap"><span style="color:#ff0033">■</span>10 <span style="color:#ff2b2b">■</span>50 <span style="color:#ff6a2b">■</span>100 <span style="color:#ffb02e">■</span>200 <span style="color:#ffe14d">■</span>500 <span style="color:#5ce1a0">■</span>千 <span style="color:#4a9eff">■</span>2千</span></th><th>概念</th>
 </tr></thead><tbody id="tb"></tbody></table>
+<div id="pager" class="pager"></div>
 </div>
 
 <div class="page" id="p-concept"><div id="conceptBox" class="cgrid"></div></div>
@@ -124,11 +135,18 @@ function conceptLinks(r){
   const url='https://basic.10jqka.com.cn/astockpc/astockmain/index.html#/concept?code='+r.code+'&marketid='+mc+'&code_name='+encodeURIComponent(r.name);
   return cs.map(c=>'<a class="concept-link" href="'+url+'" target="_blank" rel="noopener" title="查看'+esc(r.name)+'的同花顺概念">'+esc(c)+'</a>').join(' / ');
 }
+var PAGE_SIZE=50, curPage=1, filteredRows=[];
 function render(){
   const q=document.getElementById('q').value.trim().toLowerCase();
-  let rows=DATA.filter(r=>!q||r.name.toLowerCase().includes(q)||r.code.includes(q)||(r.concepts||[]).some(c=>c.toLowerCase().includes(q)));
-  rows.sort((a,b)=>((a[sortK]||0)-(b[sortK]||0))*sortD);
-  document.getElementById('cnt').textContent=rows.length+' 只';
+  filteredRows=DATA.filter(r=>!q||r.name.toLowerCase().includes(q)||r.code.includes(q)||(r.concepts||[]).some(c=>c.toLowerCase().includes(q)));
+  filteredRows.sort((a,b)=>((a[sortK]||0)-(b[sortK]||0))*sortD);
+  // 换排序/搜索时回到第1页
+  const total=filteredRows.length;
+  const maxPage=Math.max(1, Math.ceil(total/PAGE_SIZE));
+  if(curPage>maxPage) curPage=maxPage;
+  const start=(curPage-1)*PAGE_SIZE;
+  const rows=filteredRows.slice(start, start+PAGE_SIZE);
+  document.getElementById('cnt').textContent=total+' 只 · 第'+curPage+'/'+maxPage+'页';
   const mx=Math.max(...DATA.map(r=>r.heat||0),1);
   document.getElementById('tb').innerHTML=rows.map(r=>{
     const gc=r.total>=120?'#ff2b2b':r.total>=90?'#ff6a2b':r.total>=70?'#d8c62c':r.total>=50?'#5b9dff':'#8a94a6';
@@ -172,8 +190,36 @@ function render(){
       +'<td class="concept">'+(r.cbonus>0?'<span class="cbonus" title="'+esc(r.ctag||'')+'">🔥+'+r.cbonus+'</span> ':'')+conceptLinks(r)+'</td>'
       +'</tr>';
   }).join('');
+  renderPager(total, maxPage);
 }
-// 日K SVG图：收盘线 + MA5/10/20/60 + 建仓星标 + 量柱
+// 分页控件
+function renderPager(total, maxPage){
+  const box=document.getElementById('pager');
+  if(!box) return;
+  if(maxPage<=1){ box.innerHTML=''; return; }
+  let h='';
+  h+='<button class="pgbtn" '+(curPage<=1?'disabled':'')+' onclick="gotoPage(1)">首页</button>';
+  h+='<button class="pgbtn" '+(curPage<=1?'disabled':'')+' onclick="gotoPage('+(curPage-1)+')">上一页</button>';
+  // 页码：当前页前后各2页
+  let s=Math.max(1,curPage-2), e=Math.min(maxPage,curPage+2);
+  if(s>1) h+='<span class="pgdot">…</span>';
+  for(let i=s;i<=e;i++){
+    h+='<button class="pgbtn'+(i===curPage?' on':'')+'" onclick="gotoPage('+i+')">'+i+'</button>';
+  }
+  if(e<maxPage) h+='<span class="pgdot">…</span>';
+  h+='<button class="pgbtn" '+(curPage>=maxPage?'disabled':'')+' onclick="gotoPage('+(curPage+1)+')">下一页</button>';
+  h+='<button class="pgbtn" '+(curPage>=maxPage?'disabled':'')+' onclick="gotoPage('+maxPage+')">末页</button>';
+  h+='<span class="pgjump">共 '+maxPage+' 页 / '+total+' 只，跳到 <input class="pginp" id="pgto" type="number" min="1" max="'+maxPage+'" value="'+curPage+'" onkeydown="if(event.key===\'Enter\')gotoPage(parseInt(this.value)||1)"> 页</span>';
+  box.innerHTML=h;
+}
+function gotoPage(n){
+  const maxPage=Math.max(1,Math.ceil(filteredRows.length/PAGE_SIZE));
+  curPage=Math.min(maxPage,Math.max(1,n||1));
+  render();
+  // 翻页后滚回表格顶部
+  const tb=document.getElementById('tb');
+  if(tb) tb.scrollIntoView({block:'start',behavior:'smooth'});
+}
 function showK(code){
   const r=DATA.find(x=>x.code===code); if(!r)return;
   const k=r.kline||[]; if(!k.length){alert('无日线数据');return}
@@ -291,9 +337,11 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   if(t.dataset.p==='hot')renderHot();
 });
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
-  const k=th.dataset.k; if(sortK===k)sortD=-sortD;else{sortK=k;sortD=-1} render();
+  const k=th.dataset.k; if(sortK===k)sortD=-sortD;else{sortK=k;sortD=-1}
+  curPage=1;   // 换排序回第1页
+  render();
 });
-document.getElementById('q').oninput=render;
+document.getElementById('q').oninput=()=>{curPage=1;render();};   // 搜索回第1页
 render();
 </script></body></html>'''
 
