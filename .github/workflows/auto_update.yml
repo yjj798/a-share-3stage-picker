@@ -1,15 +1,14 @@
 name: 股票池自动更新
 
-# 云端独立运行：下载精简数据种子 → 抓当日增量 → 评分 → 生成页面 → 提交回仓库，
-# 触发 GitHub Pages 自动更新。全程不依赖本地机器推送任何文件。
-# 种子来自本仓库 Release seed-v1：K线60交易日、热度20交易日、概念/涨停原因按60交易日。
-# 每次运行用东财一次请求抓全市场当日OHLC追加进种子，滚动保持窗口固定（K线60/热度20），
-# 数据随交易日前进；周末/数据未前进时自动跳过增量。轻量、零第三方依赖。
+# 云端独立运行，每次从零重建：清空旧库 → 程序从公开接口抓取建库 → 评分出页面
+# → 提交回 main 触发 Pages 更新。全程不依赖本地机器、种子库或跨 run 缓存。
+# cron 的 1-5 已排除周末；工作日遇法定节假日休市由建库脚本判定后跳过。
 
 on:
   # A股收盘后（北京时间 16:30 = UTC 08:30），周一到周五
   schedule:
     - cron: '30 8 * * 1-5'
+  # 手动触发验证
   workflow_dispatch:
 
 permissions:
@@ -19,13 +18,10 @@ concurrency:
   group: stockpool-auto-update
   cancel-in-progress: false
 
-env:
-  SEED_TAG: seed-v1
-
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -37,55 +33,48 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 下载真实数据种子
+      - name: 清空旧库 → 程序从零抓取建库
+        id: build
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STOCKPOOL_DB: ${{ github.workspace }}/engine/data/quant_cloud.db
+          STOCKPOOL_SKIP_FLAG: ${{ github.workspace }}/engine/data/skip.flag
         run: |
           set -euo pipefail
-          echo "下载 seed.db.gz ..."
-          gh release download "${{ env.SEED_TAG }}" \
-            --repo "${{ github.repository }}" \
-            --pattern 'seed.db.gz' --dir "${{ runner.temp }}"
-          echo "下载 f10_concepts.json ..."
-          gh release download "${{ env.SEED_TAG }}" \
-            --repo "${{ github.repository }}" \
-            --pattern 'f10_concepts.json' --dir cache
-          gzip -dc "${{ runner.temp }}/seed.db.gz" > "${{ runner.temp }}/quant_cloud.db"
-          echo "种子就绪: $(du -h "${{ runner.temp }}/quant_cloud.db" | cut -f1)"
-
-      - name: 抓取当日增量并滚动窗口
-        # 东财一次请求拿全市场当日OHLC + 公开热度榜，追加到种子库；
-        # K线保持60交易日、热度保持20交易日；周末或数据未前进时自动跳过。
-        env:
-          STOCKPOOL_DB: ${{ runner.temp }}/quant_cloud.db
-        run: |
-          set -euo pipefail
+          mkdir -p engine/data cache out
+          rm -f "$STOCKPOOL_SKIP_FLAG"
           cd src
-          python cloud_incremental.py
+          python bootstrap_cloud.py --workers 16
+          if [ -f "$STOCKPOOL_SKIP_FLAG" ]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=休市跳过::今日休市，页面保持上一交易日数据"
+          else
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: 生成股票池页面
+      - name: 生成股票池页面（评分）
+        if: steps.build.outputs.skipped != 'true'
         env:
-          STOCKPOOL_DB: ${{ runner.temp }}/quant_cloud.db
+          STOCKPOOL_DB: ${{ github.workspace }}/engine/data/quant_cloud.db
         run: |
-          set -euo pipefail
           cd src
           python simple_pool.py
 
       - name: 复制为 index.html 供 Pages 使用
+        if: steps.build.outputs.skipped != 'true'
         run: |
-          set -euo pipefail
           cp out/简版股票池.html index.html
-          test -s index.html && echo "index.html $(wc -c < index.html) 字节"
+          test -s index.html && echo "index.html 已生成 $(wc -c < index.html) 字节"
 
       - name: 提交并推送
+        if: steps.build.outputs.skipped != 'true'
         run: |
-          set -euo pipefail
           git config user.name "stockpool-bot"
           git config user.email "bot@users.noreply.github.com"
+          # index.html 被 .gitignore 排除，需 -f 强制纳入；Pages 只认它
           git add -f index.html
           if git diff --cached --quiet; then
             echo "页面无变化，跳过提交"
           else
-            git commit -m "chore: 云端自动更新股票池页面 $(date -u +%Y%m%d-%H%M)"
+            git commit -m "chore: 云端自动重建并评分 $(date -u +%Y%m%d-%H%M)"
             git push origin main
           fi
